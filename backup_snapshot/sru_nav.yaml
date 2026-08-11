@@ -1,0 +1,75 @@
+sru_nav_node:
+  ros__parameters:
+    depth_topic: /odin1/depth_img_competetion
+    odom_topic: /odin1/odometry
+    goal_topic: /goal_pose
+    cancel_topic: /sru/cancel_navigation
+    cmd_vel_topic: /sru/cmd_vel
+    navigation_active_topic: /sru/navigation_active
+    min_depth: 0.25
+    max_depth: 10.0
+    control_frequency: 5.0
+    onnx_intra_op_threads: 1
+    policy_scale: [0.20, 0.12, 0.35]
+    arrival_distance: 0.50
+    steering_drive_mode: true
+    lateral_to_steering_gain: 0.80
+    steering_max_angular: 0.35
+    steering_min_speed_factor: 0.25
+    steering_model_yaw_weight: 0.35
+
+sru_twist_to_yhs:
+  ros__parameters:
+    cmd_vel_topic: /sru/safe_cmd_vel
+    ctrl_cmd_topic: /ctrl_cmd
+    max_linear_x: 0.20
+    max_linear_y: 0.12
+    max_angular_z: 0.35
+    command_timeout: 0.50
+    drive_gear: 6
+    lateral_gear: 8
+    lateral_activation_threshold: 0.02
+
+sru_pointcloud_safety:
+  ros__parameters:
+    cloud_topic: /odin1/cloud_raw
+    cmd_vel_topic: /sru/cmd_vel
+    safe_cmd_vel_topic: /sru/safe_cmd_vel
+    obstacle_ahead_topic: /sru/obstacle_ahead
+    # Odin center is 5 cm ahead of the vehicle center (base_link).
+    odin_x: 0.05
+    odin_y: 0.0
+    odin_z: 0.8862
+    odin_roll_deg: -1.0838
+    odin_pitch_down_deg: 8.9642
+    odin_yaw_deg: 0.0
+    ground_clearance: 0.10
+    obstacle_max_height: 1.50
+    ground_fit_min_distance: 0.40
+    ground_fit_max_distance: 4.00
+    ground_fit_half_width: 1.50
+    ground_fit_max_tilt_deg: 15.0
+    ground_fit_inlier_distance: 0.04
+    ground_fit_iterations: 20
+    ground_fit_frequency: 2.0
+    ground_plane_max_age: 0.75
+    cloud_processing_frequency: 5.0
+    max_cloud_points: 12000
+    ground_fit_min_inliers: 300
+    front_min_distance: 0.30
+    # Emergency stop zone only; SRU handles obstacles farther ahead.
+    front_max_distance: 0.50
+    front_half_width: 0.35
+    side_min_distance: 0.20
+    side_max_distance: 1.00
+    side_half_length: 0.45
+    minimum_obstacle_points: 20
+    cloud_timeout: 0.75
+    fail_safe_on_cloud_timeout: true
+    diagnostics_log_frequency: 0.5
+    enable_lateral_avoidance_assist: true
+    lateral_avoidance_speed: 0.06
+    forward_command_threshold: 0.01
+    lateral_command_threshold: 0.02
+    avoidance_direction_hold_time: 1.5
+    avoidance_clear_margin_points: 5
