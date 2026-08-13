@@ -1,0 +1,1 @@
+/home/orangepi/ugv/odinauto/odinauto.sh
