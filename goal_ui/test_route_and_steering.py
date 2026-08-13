@@ -53,7 +53,7 @@ def bridge():
     item.route = []
     item.route_index = 0
     item.route_waypoint_distance = 0.32
-    item.final_arrival_distance = 0.20
+    item.final_arrival_distance = 0.08
     item.last_event = ''
     item.goal_pub = Publisher()
     item.cancel_pub = Publisher()
@@ -82,7 +82,9 @@ assert len(item.goal_pub.messages) == 2
 
 item.send_goal(2.0, 0.0)
 assert item.target_active and item.route == []
-item._odom_callback(odom(2.0, 0.0))
+item._odom_callback(odom(1.919, 0.0))
+assert item.target_active
+item._odom_callback(odom(1.921, 0.0))
 assert not item.target_active
 
 convert = NavigationNode._convert_to_steering

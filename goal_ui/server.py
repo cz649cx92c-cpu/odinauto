@@ -20,7 +20,8 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool
 
-from lidar_preview import preview_points
+from lidar_preview import preview_points, retained_preview_points
+from status_state import derive_navigation_state
 
 
 STATIC_DIR = Path(__file__).resolve().parent / 'static'
@@ -56,12 +57,15 @@ class GoalBridge(Node):
         self.velocity_received = None
         self.target = None
         self.target_active = False
+        self.navigation_outcome = 'idle'
         self.route = []
         self.route_index = 0
-        self.final_arrival_distance = 0.20
+        self.final_arrival_distance = 0.08
         self.local_plan = []
         self.lidar_points = []
         self.lidar_received = None
+        self.lidar_points_received = None
+        self.lidar_points_current = False
         self.lidar_raw_count = 0
         self.lidar_valid_count = 0
         calibration = load_lidar_calibration()
@@ -105,6 +109,7 @@ class GoalBridge(Node):
             if distance <= self.final_arrival_distance:
                 self.target_active = False
                 self.planner_active = False
+                self.navigation_outcome = 'completed'
                 self.last_event = '路线已完成' if self.route else '已进入目标范围'
 
     def _obstacle_callback(self, message):
@@ -137,8 +142,11 @@ class GoalBridge(Node):
             offset_x=self.lidar_x,
             offset_y=self.lidar_y)
         with self.lock:
-            self.lidar_points = [{'x': x, 'y': y} for x, y in points]
             self.lidar_received = time.monotonic()
+            self.lidar_points_current = bool(points)
+            if points:
+                self.lidar_points = [{'x': x, 'y': y} for x, y in points]
+                self.lidar_points_received = self.lidar_received
             self.lidar_raw_count = len(message.ranges)
             self.lidar_valid_count = valid_count
 
@@ -181,6 +189,22 @@ class GoalBridge(Node):
             velocity_age = None if self.velocity_received is None else now - self.velocity_received
             planner_age = (None if self.planner_received is None else
                            now - self.planner_received)
+            planner_active = (self.planner_active and planner_age is not None and
+                              planner_age < 1.5)
+            lidar_age = (None if self.lidar_received is None else
+                         now - self.lidar_received)
+            lidar_points_age = (None if self.lidar_points_received is None else
+                                now - self.lidar_points_received)
+            # Retain a valid visualization frame briefly across zero-return
+            # scans, but never present old points as live sensor data.
+            displayed_lidar_points = retained_preview_points(
+                self.lidar_points, lidar_points_age)
+            navigation_state = derive_navigation_state(
+                target_active=active,
+                planner_active=planner_active,
+                obstacle=self.obstacle,
+                outcome=self.navigation_outcome,
+                has_route=bool(route))
             return {
                 'connected': connected,
                 'frame': frame,
@@ -190,9 +214,11 @@ class GoalBridge(Node):
                 'route': route,
                 'route_index': self.route_index,
                 'local_plan': [point.copy() for point in self.local_plan],
-                'lidar_points': [point.copy() for point in self.lidar_points],
-                'lidar_fresh': (self.lidar_received is not None and
-                                now - self.lidar_received < 1.0),
+                'lidar_points': [point.copy() for point in displayed_lidar_points],
+                'lidar_fresh': lidar_age is not None and lidar_age < 1.0,
+                'lidar_points_current': self.lidar_points_current,
+                'lidar_points_age': (None if lidar_points_age is None else
+                                     round(lidar_points_age, 3)),
                 'lidar_counts': {
                     'raw': self.lidar_raw_count,
                     'valid': self.lidar_valid_count,
@@ -203,8 +229,8 @@ class GoalBridge(Node):
                     'x': self.lidar_x,
                     'y': self.lidar_y,
                 },
-                'planner_active': (self.planner_active and planner_age is not None and
-                                   planner_age < 1.5),
+                'planner_active': planner_active,
+                'navigation_state': navigation_state,
                 'distance': None if distance is None else round(distance, 3),
                 'obstacle': self.obstacle,
                 'velocity': {
@@ -242,6 +268,7 @@ class GoalBridge(Node):
                 self.route_index = 0
                 self.target = {'x': round(x, 3), 'y': round(y, 3)}
                 self.target_active = True
+                self.navigation_outcome = 'active'
                 self.last_event = f'目标已发送：X {x:.2f}，Y {y:.2f}'
             self.goal_pub.publish(message)
             self._publish_preferred_route([])
@@ -292,6 +319,7 @@ class GoalBridge(Node):
                 self.route_index = 0
                 self.target = parsed[-1].copy()
                 self.target_active = True
+                self.navigation_outcome = 'active'
                 self.last_event = '实时规划已开始'
             self.goal_pub.publish(message)
             self._publish_preferred_route(parsed)
@@ -300,6 +328,7 @@ class GoalBridge(Node):
         with self.command_lock:
             with self.lock:
                 self.target_active = False
+                self.navigation_outcome = 'stopped'
                 self.route = []
                 self.route_index = 0
                 self.last_event = '导航已停止'

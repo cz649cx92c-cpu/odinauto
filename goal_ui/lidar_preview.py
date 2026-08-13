@@ -3,6 +3,13 @@
 import math
 
 
+def retained_preview_points(points, points_age, retention_seconds=2.0):
+    """Return cached display points only inside the bounded stale window."""
+    if points_age is None or points_age < 0.0 or points_age >= retention_seconds:
+        return []
+    return points
+
+
 def preview_points(ranges, angle_min, angle_increment, range_min, range_max,
                    yaw_deg=177.0, offset_x=0.0, offset_y=0.035,
                    visible_x=(-0.55, 1.85), visible_y=(-2.55, 2.55),

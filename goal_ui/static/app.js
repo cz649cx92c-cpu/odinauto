@@ -34,6 +34,7 @@ let pointerDrawing = false;
 let routeView = null;
 let viewZoom = 1;
 let toastTimer = null;
+let lastStatusReceivedAt = 0;
 
 function showToast(message, error = false) {
   clearTimeout(toastTimer);
@@ -51,7 +52,36 @@ async function request(path, options = {}) {
 }
 
 function activeRoute() {
-  return draftRoute.length ? draftRoute : (status.route || []);
+  if (draftRoute.length) return draftRoute;
+  if (!status.target_active) return [];
+  return remainingRoute(status.route || [], status.position);
+}
+
+function remainingRoute(points, position) {
+  if (!points.length || !position) return points.slice();
+  if (points.length === 1) return points.slice();
+
+  let closest = null;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lengthSquared = dx * dx + dy * dy;
+    const ratio = lengthSquared > 0
+      ? Math.max(0, Math.min(1,
+        ((position.x - start.x) * dx + (position.y - start.y) * dy) / lengthSquared))
+      : 0;
+    const projected = { x: start.x + ratio * dx, y: start.y + ratio * dy };
+    const distanceSquared = (position.x - projected.x) ** 2 + (position.y - projected.y) ** 2;
+    if (!closest || distanceSquared < closest.distanceSquared) {
+      closest = { segment: index, projected, distanceSquared };
+    }
+  }
+
+  const result = [closest.projected, ...points.slice(closest.segment + 1)];
+  return result.filter((point, index) => index === 0 ||
+    Math.hypot(point.x - result[index - 1].x, point.y - result[index - 1].y) >= 0.01);
 }
 
 function routeLength(points) {
@@ -145,6 +175,9 @@ function drawMap() {
   ctx.fillText('+Y 左侧', 18, 48);
 
   const obstacles = status.lidar_points || [];
+  const lidarLive = status.lidar_fresh && status.lidar_points_current;
+  ctx.save();
+  ctx.globalAlpha = lidarLive ? 1 : 0.28;
   obstacles.forEach((point) => {
     // Same visualization-only self-reflection mask as autorunlida.
     if (point.x >= -0.64 && point.x <= 0.04 && Math.abs(point.y) <= 0.30) return;
@@ -153,6 +186,12 @@ function drawMap() {
     ctx.fillStyle = detection ? 'rgba(71,85,105,.88)' : 'rgba(71,85,105,.46)';
     ctx.beginPath(); ctx.arc(screen.x, screen.y, detection ? 1.85 : 1.25, 0, Math.PI * 2); ctx.fill();
   });
+  ctx.restore();
+  if (!lidarLive) {
+    ctx.fillStyle = '#9a6700';
+    ctx.font = '600 14px Segoe UI';
+    ctx.fillText(status.lidar_fresh ? '雷达本帧无有效回波' : '雷达数据已过期', 18, 70);
+  }
 
   const localPlan = status.local_plan || [];
   if (localPlan.length) {
@@ -191,7 +230,7 @@ function drawMap() {
       ctx.beginPath(); ctx.arc(screen.x, screen.y, index === route.length - 1 ? 9 : 5, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
     });
-  } else if (status.target) {
+  } else if (status.target && status.target_active) {
     const target = toScreen(status.target);
     ctx.strokeStyle = '#c94343';
     ctx.lineWidth = 4;
@@ -279,9 +318,9 @@ function render(next) {
   ui.obstacle.textContent = next.obstacle == null ? '--' : (next.obstacle ? '前方有障碍' : '通道正常');
   ui.velocity.textContent = next.velocity?.fresh ? `X ${next.velocity.x.toFixed(2)} · Y ${next.velocity.y.toFixed(2)}` : '--';
   const routeCount = next.route?.length || 0;
-  ui.targetState.textContent = next.target_active
-    ? (next.planner_active ? '实时规划中' : '等待可行路径')
-    : (next.target ? '目标已停止' : '未设置目标');
+  ui.targetState.textContent = next.navigation_state?.label || (next.target_active
+    ? (next.obstacle ? '前方有障碍' : (next.planner_active ? '实时规划中' : '等待可行路径'))
+    : '未设置目标');
   ui.event.textContent = next.event || '等待状态';
   ui.form.querySelector('.primary').disabled = !next.connected;
   updateRouteControls();
@@ -290,10 +329,14 @@ function render(next) {
 
 async function refresh() {
   try {
-    render(await request('/api/status'));
+    const next = await request('/api/status');
+    lastStatusReceivedAt = Date.now();
+    render(next);
   } catch (error) {
-    render({ connected: false, position: null, target: null, route: [],
-      local_plan: [], lidar_points: [], velocity: {} });
+    const retainLidar = Date.now() - lastStatusReceivedAt < 2000;
+    render({ ...status, connected: false, lidar_fresh: false,
+      lidar_points_current: false,
+      lidar_points: retainLidar ? (status.lidar_points || []) : [], velocity: {} });
   }
 }
 
